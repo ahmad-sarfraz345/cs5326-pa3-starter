@@ -188,25 +188,39 @@ def test_build_prm_judge_prompt_structure():
     # Empty preceding steps
     p_first = adapter.build_prm_judge_prompt("What is 2 + 2?", [], "2 + 2 = 4")
     assert "What is 2 + 2?" in p_first
+    assert "(no preceding steps)" in p_first
+    assert "Current Step:" in p_first
     assert "2 + 2 = 4" in p_first
+    assert "assume all preceding steps are correct" in p_first.lower()
     assert "Verdict: VALID" in p_first
+    assert "Verdict: INVALID" in p_first
     assert "Rationale:" in p_first
 
-    # Preceding steps included in order
-    preceding = ["Step A: Let x = 2", "Step B: Let y = 3"]
-    p_later = adapter.build_prm_judge_prompt("Find x + y", preceding, "Step C: x + y = 5")
-    assert "Step A: Let x = 2" in p_later
-    assert "Step B: Let y = 3" in p_later
-    assert "Step C: x + y = 5" in p_later
+    # Preceding steps included in order and numbered Step 1, Step 2
+    preceding = ["Let x = 2", "Let y = 3"]
+    p_later = adapter.build_prm_judge_prompt("Find x + y", preceding, "x + y = 5")
+    assert "Step 1: Let x = 2" in p_later
+    assert "Step 2: Let y = 3" in p_later
+    assert p_later.index("Step 1: Let x = 2") < p_later.index("Step 2: Let y = 3")
+    assert "Current Step:" in p_later
+    assert "x + y = 5" in p_later
+    assert "assume all preceding steps are correct" in p_later.lower()
+    assert "Verdict: VALID" in p_later
+    assert "Verdict: INVALID" in p_later
+    assert "Rationale:" in p_later
 
 
 def test_parse_judge_decision():
     cases = [
-        ("Verdict: VALID\nRationale: Step is sound.", 1.0, "Step is sound"),
-        ("Verdict: INVALID\nRationale: Calculation error.", -1.0, "Calculation error"),
-        ("Verdict: **VALID**\nRationale: Correct algebra.", 1.0, "Correct algebra"),
-        ("Verdict: **INVALID**\nRationale: Arithmetic flaw.", -1.0, "Arithmetic flaw"),
-        ("verdict: invalid\nrationale: false premise.", -1.0, "false premise"),
+        ("Verdict: VALID\nRationale: Step is sound.", 1.0, "Step is sound."),
+        ("Verdict: INVALID\nRationale: Calculation error.", -1.0, "Calculation error."),
+        ("Verdict: **VALID**\nRationale: Correct algebra.", 1.0, "Correct algebra."),
+        ("Verdict: **INVALID**\nRationale: Arithmetic flaw.", -1.0, "Arithmetic flaw."),
+        ("verdict: invalid\nrationale: false premise.", -1.0, "false premise."),
+        ("Verdict: VALID\nRationale: 2.5 * 4 = 10 is correct. Extra text.", 1.0, "2.5 * 4 = 10 is correct."),
+        ("Verdict: VALID\nRationale: 2.5 \u00d7 4 = 10 is correct. Extra text.", 1.0, "2.5 \u00d7 4 = 10 is correct."),
+        ("Verdict: INVALID\nRationale: Step is incorrect! Next explanation.", -1.0, "Step is incorrect!"),
+        ("Verdict: INVALID\nRationale: Is this correct? No.", -1.0, "Is this correct?"),
         ("The step is NOT VALID because of bad arithmetic.", -1.0, ""),
         ("The step is valid and sound.", 1.0, ""),
         ("The step is invalid.", -1.0, ""),  # Substring trap: INVALID contains VALID
@@ -214,11 +228,10 @@ def test_parse_judge_decision():
         ("Total gibberish output without decision.", -1.0, ""),
         ("", -1.0, ""),
     ]
-    for judge_text, expected_score, expected_rat_sub in cases:
+    for judge_text, expected_score, expected_rat in cases:
         score, rationale = adapter.parse_judge_decision(judge_text)
         assert score == expected_score, f"Failed score for '{judge_text}': got {score}, expected {expected_score}"
-        if expected_rat_sub:
-            assert expected_rat_sub.lower() in rationale.lower()
+        assert rationale == expected_rat, f"Failed rationale for '{judge_text}': got {repr(rationale)}, expected {repr(expected_rat)}"
 
 
 def test_score_path():
@@ -286,6 +299,17 @@ def test_select_best_path_clear_winner():
     assert win["num_tied"] == 1
     # Verify inputs are not mutated
     assert cands == orig_cands
+
+    # Verify candidate dict extra keys pass through unchanged in returned copy
+    cands_extra = [
+        {"steps": ["s1"], "step_scores": [1.0], "answer": 42, "custom_id": 999, "flag": True}
+    ]
+    win_extra = adapter.select_best_path(cands_extra)
+    assert win_extra["answer"] == 42
+    assert win_extra["custom_id"] == 999
+    assert win_extra["flag"] is True
+    assert win_extra["path_score"] == 1.0
+    assert win_extra["num_tied"] == 1
 
 
 def test_select_best_path_tie_broken_by_majority():
@@ -403,6 +427,22 @@ def test_run_compute_matched_self_consistency():
     assert res["answer"] == 20
     assert "time_seconds" in res
     assert res["time_seconds"] >= 0.0
+
+
+def test_scaling_curve_consistency():
+    # 5 shared candidates (indices 0..4) and 10 additional candidates (indices 5..14)
+    # Answers: indices 0..4 have majority 10; indices 0..14 have majority 20
+    all_answers = [10, 10, 10, 20, 20] + [20, 20, 20, 20, 20, 20, 30, 30, 30, 30]
+    sc5_ans = adapter.compute_majority_vote(all_answers[:5])
+    assert sc5_ans == 10
+
+    sc15_ans = adapter.compute_majority_vote(all_answers[:15])
+    assert sc15_ans == 20
+
+    # Consistency across curve: each point N is majority vote over the first N samples
+    curve_answers = [adapter.compute_majority_vote(all_answers[:n]) for n in range(1, 16)]
+    assert curve_answers[4] == sc5_ans    # N=5 (index 4) matches SC@5
+    assert curve_answers[14] == sc15_ans  # N=15 (index 14) matches SC@15
 
 
 def run_all_tests():

@@ -17,6 +17,13 @@ def build_prm_judge_prompt(question: str, preceding_steps: list[str], current_st
     A step is VALID if its arithmetic is sound and it follows logically from the
     problem statement plus preceding steps as written. An error in an earlier step
     does NOT make subsequent steps invalid by itself.
+    
+    Autograder Literal Checks:
+    - Preceding steps are rendered as 'Step 1: <text>', 'Step 2: <text>', ... in order.
+    - The current step is rendered with the label 'Current Step:'.
+    - The prompt contains the phrase 'assume all preceding steps are correct' (case-insensitive).
+    - The prompt contains the literal strings 'Verdict: VALID', 'Verdict: INVALID', and 'Rationale:'.
+    - With an empty preceding_steps list, the prompt states '(no preceding steps)'.
     """
     # TODO: Build verification prompt instructing 7B judge under local validity
     raise NotImplementedError("Implement build_prm_judge_prompt in src/prm_judge.py")
@@ -36,8 +43,9 @@ def parse_judge_decision(judge_output: str) -> tuple[float, str]:
       
     Warning: A naive '"VALID" in text' check is wrong because "INVALID" contains "VALID".
     
-    Rationale: Text after 'Rationale:' up to the first sentence end or newline, stripped.
-    If absent, returns empty string "".
+    Rationale: Text after 'Rationale:' up to the first sentence end (".", "!", or "?"
+    followed by whitespace or end of string, so decimals like "2.5" are not split),
+    or a newline, whichever comes first, stripped. If absent, returns empty string "".
     """
     # TODO: Implement regex parsing for judge verdict and rationale
     raise NotImplementedError("Implement parse_judge_decision in src/prm_judge.py")

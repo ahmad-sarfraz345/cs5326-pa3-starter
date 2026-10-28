@@ -15,11 +15,11 @@ Populate with empirical metrics generated from your benchmark evaluation over `d
 | Greedy (N=1) | | 50 | 0 | 50 | | 0.0 | |
 | Self-Consistency (N=5) | | 250 | 0 | 250 | | 0.0 | |
 | Compute-Matched SC (N=15) | | 750 | 0 | 750 | | 0.0 | |
-| PRM Best-of-5 (min) | | 250 | [measured] | [measured] | | | |
-| PRM Best-of-5 (product) | | 250 | [shared] | [shared] | | | |
-| PRM Best-of-5 (step_penalty, lambda=2.0) | | 250 | [shared] | [shared] | | | |
+| PRM Best-of-5 (min) | | 250 | 250 x K_bar | 250 + 250*K_bar | | | |
+| PRM Best-of-5 (product) | | 250 | 250 x K_bar | 250 + 250*K_bar | | | |
+| PRM Best-of-5 (step_penalty, lambda=2.0) | | 250 | 250 x K_bar | 250 + 250*K_bar | | | |
 
-*Note: PRM Best-of-5 configurations share the same 5 candidate generation passes and step verification evaluations per problem. Time attribution rules: generation time and candidate judging time are measured once and attributed to min; subsequent aggregation ablations reuse cached scores and attribute only their scoring/selection time.*
+*Note: PRM Best-of-5 configurations share identical candidate paths and step scores. In results_summary.json, all three PRM rows report the same numeric Generation Calls, Judge Calls, Total LLM Calls, and token columns. Time attribution rules: Greedy = its own generation time; SC@5 = time to sample the 5 shared candidates; each PRM row (min, product, step_penalty) = SC@5 sampling time + total judging time + its own aggregation/selection time (each row reports the full cost of running that method, even though judging is computed once and cached); SC@15 = SC@5 sampling time + time to sample the 10 additional candidates.*
 
 ### 1.2 Scaling Plots
 * Include two clear scaling plots:
@@ -60,7 +60,7 @@ Serialize your empirical findings to `outputs/aggregation_ablation.json` and rep
 ## Section 3: Failure Mode and Judge Error Analysis (7 Points)
 
 ### 3.1 Qualitative Failure Cases
-Identify three concrete failure examples from your GSM8K benchmark evaluation:
+Identify three concrete failure examples from your GSM8K benchmark evaluation. If a failure category does not occur in your run, present the closest example and explain its absence:
 
 #### Case 1: Judge False Positive (Flawed step marked VALID)
 * **Problem ID / Question:**

@@ -34,6 +34,11 @@ def select_best_path(
     """
     Selects the winning candidate path from candidate_paths.
     
+    Input Dictionary Contract:
+      Each candidate dictionary in candidate_paths must contain 'step_scores' (list[float])
+      and 'answer' (int | None). Any other keys present in the candidate dictionary
+      are passed through unchanged in the returned copy.
+    
     Selection & Tie-Breaking Rules:
       1. Compute path_score for each candidate with aggregate_path_score.
          A candidate with an empty step_scores list gets -1.0.

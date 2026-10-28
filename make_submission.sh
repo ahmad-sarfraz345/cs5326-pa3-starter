@@ -12,8 +12,22 @@ ARCHIVE_NAME="${ROLL_NUMBER}_pa3.zip"
 
 echo "Creating submission archive: ${ARCHIVE_NAME}"
 
+# Verify pipeline notebook or script exists
+PIPELINE_FILE=""
+if [ -f "run_pipeline.ipynb" ]; then
+    PIPELINE_FILE="run_pipeline.ipynb"
+elif [ -f "run_all.py" ]; then
+    PIPELINE_FILE="run_all.py"
+elif [ -f "pa3_kaggle_solution.ipynb" ]; then
+    PIPELINE_FILE="pa3_kaggle_solution.ipynb"
+else
+    echo "Error: Neither run_pipeline.ipynb nor run_all.py found in repository root."
+    echo "Please provide your runnable pipeline notebook or script."
+    exit 1
+fi
+
 # Verify required files and directories exist
-for req in "submission_adapter.py" "src" "outputs/results_summary.json" "outputs/aggregation_ablation.json" "outputs/sc_scaling_curve.json" "REPORT.pdf"; do
+for req in "submission_adapter.py" "src" "outputs/per_problem.jsonl" "outputs/results_summary.json" "outputs/aggregation_ablation.json" "outputs/sc_scaling_curve.json" "REPORT.pdf"; do
     if [ ! -e "$req" ]; then
         echo "Error: Required submission file or directory '$req' not found."
         echo "Please ensure you have run the evaluation scripts and placed REPORT.pdf in the repository root."
@@ -29,6 +43,8 @@ python tests/test_public_adapter_smoke.py || echo "Warning: Some tests failed. P
 zip -r "${ARCHIVE_NAME}" \
     src/ \
     submission_adapter.py \
+    "${PIPELINE_FILE}" \
+    outputs/per_problem.jsonl \
     outputs/results_summary.json \
     outputs/aggregation_ablation.json \
     outputs/sc_scaling_curve.json \

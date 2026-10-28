@@ -102,10 +102,12 @@ def build_prm_judge_prompt(question: str, preceding_steps: list[str], current_st
       problem statement plus preceding steps as written. An error in an earlier step
       does NOT make subsequent steps invalid by itself.
       
-    Expected Output Format:
-      Verdict: VALID
-      Rationale: <one sentence>
-      (or 'Verdict: INVALID').
+    Autograder Literal Checks:
+      - Preceding steps are rendered as 'Step 1: <text>', 'Step 2: <text>', ... in order.
+      - The current step is rendered with the label 'Current Step:'.
+      - The prompt contains the phrase 'assume all preceding steps are correct' (case-insensitive).
+      - The prompt contains the literal strings 'Verdict: VALID', 'Verdict: INVALID', and 'Rationale:'.
+      - With an empty preceding_steps list, the prompt states '(no preceding steps)'.
       
     Args:
         question: The original problem statement.
@@ -131,8 +133,9 @@ def parse_judge_decision(judge_output: str) -> tuple[float, str]:
       
       Warning: A naive '"VALID" in text' check is wrong because "INVALID" contains "VALID".
       
-      Rationale: The text after 'Rationale:' up to the first sentence end or newline, stripped.
-      If absent, returns empty string "".
+      Rationale: The text after 'Rationale:' up to the first sentence end (".", "!", or "?"
+      followed by whitespace or end of string, so decimals like "2.5" are not split),
+      or a newline, whichever comes first, stripped. If absent, returns empty string "".
       
     Args:
         judge_output: The raw text returned by the judge model.
@@ -178,6 +181,11 @@ def select_best_path(
     """Given a list of candidate dictionaries containing 'steps', 'step_scores', 
     and 'answer', computes the aggregated path score for each candidate and 
     returns the highest-scoring candidate dictionary.
+    
+    Input Dictionary Contract:
+      Each candidate dictionary in candidate_paths must contain 'step_scores' (list[float])
+      and 'answer' (int | None). Any other keys present in the candidate dictionary
+      are passed through unchanged in the returned copy.
     
     Selection & Tie-Breaking Rules:
       1. Compute path_score for each candidate with aggregate_path_score.
