@@ -296,8 +296,8 @@ def run_prm_best_of_n(
     """Executes PRM-guided Best-of-N search over candidate trajectories.
     
     If candidates is provided (shared candidate pool), does NOT sample new paths
-    (generation_calls = 0, generated_tokens = 0). Provided candidates use the
-    run_self_consistency candidate format (at minimum 'steps' and 'answer').
+    (generation_calls = 0, generated_tokens = 0).
+    Provided candidates use the run_self_consistency candidate format (at minimum 'steps' and 'answer').
     Otherwise, samples n candidates.
     Every candidate has all steps scored by judge_fn (no early stopping).
     Selects the winning candidate via select_best_path.
