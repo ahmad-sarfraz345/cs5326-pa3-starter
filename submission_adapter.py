@@ -295,9 +295,9 @@ def run_prm_best_of_n(
 ) -> dict[str, Any]:
     """Executes PRM-guided Best-of-N search over candidate trajectories.
     
-    If candidates is provided (shared candidate pool), candidates use the same
-    format as run_self_consistency candidates (at minimum 'steps' and 'answer');
-    does NOT sample new paths (generation_calls = 0, generated_tokens = 0).
+    If candidates is provided (shared candidate pool), does NOT sample new paths
+    (generation_calls = 0, generated_tokens = 0). Provided candidates use the
+    run_self_consistency candidate format (at minimum 'steps' and 'answer').
     Otherwise, samples n candidates.
     Every candidate has all steps scored by judge_fn (no early stopping).
     Selects the winning candidate via select_best_path.
@@ -329,13 +329,12 @@ def run_compute_matched_self_consistency(
     
     If existing_candidates is provided, samples only target_calls - len(existing_candidates).
     Votes over all candidates combined.
-    The returned 'candidates' list contains existing_candidates followed by
-    the newly sampled ones, in sampling order.
+    Returned candidates = existing_candidates followed by new samples, in sampling order.
     
     Returns:
         Dict with keys:
           'candidates': list of all target_calls candidate dicts (existing_candidates
-                        followed by newly sampled ones, in sampling order),
+                        followed by new samples, in sampling order),
           'answer': majority vote over all candidate answers,
           'generation_calls': int (new samples drawn only),
           'total_samples': int (=target_calls),

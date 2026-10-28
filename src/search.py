@@ -73,9 +73,9 @@ def run_prm_best_of_n(
     """
     Executes PRM-guided Best-of-N search over reasoning trajectories.
     
-    If candidates is provided (shared candidate pool), candidates use the same
-    format as run_self_consistency candidates (at minimum 'steps' and 'answer');
-    does NOT sample new candidates (generation_calls = 0, generated_tokens = 0).
+    If candidates is provided (shared candidate pool), does NOT sample new candidates
+    (generation_calls = 0, generated_tokens = 0). Provided candidates use the
+    run_self_consistency candidate format (at minimum 'steps' and 'answer').
     Otherwise, samples n candidates using run_self_consistency.
     
     Scores each candidate's steps using score_path.
@@ -101,8 +101,7 @@ def run_compute_matched_self_consistency(
     """
     Executes compute-matched Self-Consistency aggregating target_calls paths.
     If existing_candidates are supplied, samples only the deficit:
-    target_calls - len(existing_candidates). The returned 'candidates' list
-    contains existing_candidates followed by the newly sampled ones, in sampling order.
+    target_calls - len(existing_candidates). Returned candidates = existing_candidates followed by new samples, in sampling order.
     
     Returns:
       candidates, answer, generation_calls (new samples only), total_samples,
