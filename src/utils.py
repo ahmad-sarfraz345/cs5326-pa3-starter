@@ -1,6 +1,8 @@
 """
 src/utils.py - Model loading, generation constants, seed management, and factories.
 """
+import json
+import os
 from typing import Any, Callable
 
 # Global random seed specified by course policy
@@ -9,6 +11,9 @@ GLOBAL_SEED = 5326
 # Sampling & decoding hyperparameter configurations
 GREEDY_GEN_KWARGS = {
     "do_sample": False,
+    "temperature": None,
+    "top_p": None,
+    "top_k": None,
     "max_new_tokens": 512,
 }
 
@@ -23,6 +28,9 @@ SAMPLING_GEN_KWARGS = {
 
 JUDGE_GEN_KWARGS = {
     "do_sample": False,
+    "temperature": None,
+    "top_p": None,
+    "top_k": None,
     "max_new_tokens": 96,
 }
 
@@ -117,8 +125,15 @@ def make_hf_generate_fn(model: Any, tokenizer: Any) -> Callable[[str, int, dict]
         prompt_len = inputs["input_ids"].shape[1]
 
         kwargs = dict(gen_kwargs)
+        if not kwargs.get("do_sample", False):
+            kwargs["temperature"] = None
+            kwargs["top_p"] = None
+            kwargs["top_k"] = None
+
         if num_samples > 1 and kwargs.get("do_sample", True):
             kwargs["num_return_sequences"] = num_samples
+
+        kwargs.setdefault("pad_token_id", tokenizer.eos_token_id)
 
         with torch.no_grad():
             output_ids = model.generate(**inputs, **kwargs)
@@ -148,10 +163,44 @@ def make_hf_judge_fn(judge_model: Any, judge_tokenizer: Any) -> Callable[[str], 
         inputs = {k: v.to(judge_model.device) for k, v in inputs.items()}
         prompt_len = inputs["input_ids"].shape[1]
 
+        kwargs = dict(JUDGE_GEN_KWARGS)
+        kwargs.setdefault("pad_token_id", judge_tokenizer.eos_token_id)
+
         with torch.no_grad():
-            output_ids = judge_model.generate(**inputs, **JUDGE_GEN_KWARGS)
+            output_ids = judge_model.generate(**inputs, **kwargs)
         gen_tokens = output_ids[0][prompt_len:]
         text = judge_tokenizer.decode(gen_tokens, skip_special_tokens=True)
         return {"text": text, "num_tokens": len(gen_tokens)}
 
     return judge_fn
+
+
+def save_results_summary(results_list: list[dict[str, Any]], filepath: str = "outputs/results_summary.json") -> None:
+    """
+    Saves results_summary.json conforming strictly to the assignment schema:
+    Keys: 'Method', 'Accuracy (%)', 'Generation Calls', 'Judge Calls', 'Total LLM Calls',
+          'Avg Gen Tokens / Problem', 'Avg Judge Tokens / Problem', 'Total Time (s)'
+    """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(results_list, f, indent=2)
+
+
+def save_aggregation_ablation(ablation_list: list[dict[str, Any]], filepath: str = "outputs/aggregation_ablation.json") -> None:
+    """
+    Saves aggregation_ablation.json:
+    List of {'Strategy': str, 'Lambda': float | None, 'Accuracy (%)': float, 'Tie Rate (%)': float}
+    """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(ablation_list, f, indent=2)
+
+
+def save_sc_scaling_curve(curve_list: list[dict[str, Any]], filepath: str = "outputs/sc_scaling_curve.json") -> None:
+    """
+    Saves sc_scaling_curve.json:
+    List of {'N': int, 'Accuracy (%)': float, 'Avg Gen Tokens / Problem': float}
+    """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(curve_list, f, indent=2)

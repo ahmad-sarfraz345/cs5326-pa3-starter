@@ -98,6 +98,7 @@ def test_parse_steps_markdown_decorated():
 
 
 def test_extract_answer_required_behaviors():
+    # Exactly the 11 rows specified in the assignment manual
     cases = [
         ("Final Answer: 18", 18),
         ("Final Answer: $1,234", 1234),
@@ -142,14 +143,19 @@ def test_run_greedy():
         ["Step 1: Add 2 and 3 to get 5.\nFinal Answer: 5"],
         token_counts=[12],
     )
-    res = adapter.run_greedy(mock_gen, "What is 2 + 3?")
+    res = adapter.run_greedy(None, None, "What is 2 + 3?", generate_fn=mock_gen)
     assert res["answer"] == 5
     assert len(res["steps"]) == 1
     assert res["generation_calls"] == 1
     assert res["generated_tokens"] == 12
+    assert "time_seconds" in res
+    assert res["time_seconds"] >= 0.0
     assert "prompt" in res
     assert "completion" in res
     assert mock_gen.recorded_kwargs[0].get("do_sample") is False
+    assert mock_gen.recorded_kwargs[0].get("temperature") is None
+    assert mock_gen.recorded_kwargs[0].get("top_p") is None
+    assert mock_gen.recorded_kwargs[0].get("top_k") is None
 
 
 def test_run_self_consistency():
@@ -159,11 +165,18 @@ def test_run_self_consistency():
         "Step 1: Compute.\nFinal Answer: 10",
     ]
     mock_gen = make_mock_generate_fn(responses, token_counts=[10, 10, 10])
-    res = adapter.run_self_consistency(mock_gen, "What is X?", n=3, temperature=0.7)
+    res = adapter.run_self_consistency(None, None, "What is X?", n=3, temperature=0.7, generate_fn=mock_gen)
     assert res["answer"] == 10
     assert len(res["candidates"]) == 3
     assert res["generation_calls"] == 3
     assert res["generated_tokens"] == 30
+    assert "time_seconds" in res
+    assert res["time_seconds"] >= 0.0
+    for cand in res["candidates"]:
+        assert "completion" in cand
+        assert "steps" in cand
+        assert "answer" in cand
+        assert "num_tokens" in cand
     assert mock_gen.recorded_kwargs[0].get("do_sample") is True
     assert mock_gen.recorded_kwargs[0].get("temperature") == 0.7
 
@@ -209,14 +222,16 @@ def test_parse_judge_decision():
 
 
 def test_score_path():
-    steps = ["Step 1: x = 10", "Step 2: y = 20", "Step 3: x + y = 30"]
+    candidate = {
+        "steps": ["Step 1: x = 10", "Step 2: y = 20", "Step 3: x + y = 30"]
+    }
     judge_responses = [
         "Verdict: VALID\nRationale: Good x.",
         "Verdict: VALID\nRationale: Good y.",
         "Verdict: INVALID\nRationale: Bad sum.",
     ]
     mock_judge = make_mock_judge_fn(judge_responses, token_counts=[8, 8, 9])
-    res = adapter.score_path(mock_judge, "Problem text", steps)
+    res = adapter.score_path(None, None, "Problem text", candidate, judge_fn=mock_judge)
     assert res["step_scores"] == [1.0, 1.0, -1.0]
     assert len(res["rationales"]) == 3
     assert res["judge_calls"] == 3
@@ -321,13 +336,22 @@ def test_run_prm_best_of_n_standalone():
     ]
     mock_judge = make_mock_judge_fn(judge_texts, token_counts=[10, 10])
 
-    res = adapter.run_prm_best_of_n(mock_gen, mock_judge, "What is X?", n=2)
+    res = adapter.run_prm_best_of_n(
+        None, None, None, None, "What is X?", n=2, 
+        generate_fn=mock_gen, judge_fn=mock_judge
+    )
     assert res["answer"] == 20
     assert res["generation_calls"] == 2
     assert res["judge_calls"] == 2
     assert res["generated_tokens"] == 30
     assert res["judge_tokens"] == 20
+    assert "time_seconds" in res
+    assert res["time_seconds"] >= 0.0
     assert res["selected"]["path_score"] == 1.0
+    assert len(res["candidates"]) == 2
+    for cand in res["candidates"]:
+        assert "step_scores" in cand
+        assert "rationales" in cand
 
 
 def test_run_prm_best_of_n_with_shared_candidates():
@@ -343,13 +367,16 @@ def test_run_prm_best_of_n_with_shared_candidates():
     mock_judge = make_mock_judge_fn(judge_texts, token_counts=[8, 8])
 
     res = adapter.run_prm_best_of_n(
-        mock_gen, mock_judge, "Problem", n=2, candidates=shared_cands
+        None, None, None, None, "Problem", n=2, 
+        candidates=shared_cands, generate_fn=mock_gen, judge_fn=mock_judge
     )
     # Must NOT draw new samples
     assert res["generation_calls"] == 0
     assert res["generated_tokens"] == 0
     assert res["judge_calls"] == 2
     assert res["judge_tokens"] == 16
+    assert "time_seconds" in res
+    assert res["time_seconds"] >= 0.0
     assert res["answer"] == 10
 
 
@@ -366,13 +393,16 @@ def test_run_compute_matched_self_consistency():
     mock_gen = make_mock_generate_fn(new_responses, token_counts=[12, 12, 12])
 
     res = adapter.run_compute_matched_self_consistency(
-        mock_gen, "Problem", target_calls=5, existing_candidates=existing_cands
+        None, None, "Problem", target_calls=5, 
+        existing_candidates=existing_cands, generate_fn=mock_gen
     )
     assert res["total_samples"] == 5
     assert res["generation_calls"] == 3
     assert res["generated_tokens"] == 36
     assert len(res["candidates"]) == 5
     assert res["answer"] == 20
+    assert "time_seconds" in res
+    assert res["time_seconds"] >= 0.0
 
 
 def run_all_tests():

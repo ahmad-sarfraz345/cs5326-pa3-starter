@@ -1,5 +1,5 @@
 """
-src/search.py - Path aggregation, Best-of-N selection, and compute-matched search.
+src/search.py - Path aggregation, Best-of-N search, and compute-matched search.
 """
 from typing import Any, Callable
 
@@ -22,7 +22,7 @@ def aggregate_path_score(
       - 'step_penalty': mean(step_scores) - penalty_lambda * count(r_t == -1.0).
       - An unknown strategy raises ValueError.
     """
-    # TODO: Implement step score aggregation rules
+    # TODO: Implement min, product, and step_penalty aggregation
     raise NotImplementedError("Implement aggregate_path_score in src/search.py")
 
 
@@ -48,41 +48,58 @@ def select_best_path(
          'path_score' (float) and 'num_tied' (int, size of the tied set).
          Does not mutate the inputs.
     """
-    # TODO: Implement Best-of-N candidate selection and majority tie-breaking
+    # TODO: Implement best path selection with answer=None filtering and majority tie-breaking
     raise NotImplementedError("Implement select_best_path in src/search.py")
 
 
 def run_prm_best_of_n(
-    generate_fn: GenerateFn, 
-    judge_fn: JudgeFn, 
-    question: str, 
+    model: Any = None, 
+    judge_model: Any = None, 
+    gen_tokenizer: Any = None, 
+    judge_tokenizer: Any = None, 
+    question: str = "", 
     n: int = 5, 
     aggregation_strategy: str = "min", 
     penalty_lambda: float = 2.0, 
-    candidates: list[dict[str, Any]] | None = None
+    candidates: list[dict[str, Any]] | None = None, 
+    generate_fn: GenerateFn | None = None, 
+    judge_fn: JudgeFn | None = None
 ) -> dict[str, Any]:
     """
-    Executes PRM-guided Best-of-N search over candidate trajectories.
+    Executes PRM-guided Best-of-N search over reasoning trajectories.
     
-    If candidates is provided (shared candidate pool), does NOT sample new paths.
+    If candidates is provided (shared candidate pool), does NOT sample new candidates
+    (generation_calls = 0, generated_tokens = 0).
     Otherwise, samples n candidates using run_self_consistency.
-    Every candidate has all steps scored by judge_fn (no early stopping).
+    
+    Scores each candidate's steps using score_path.
     Selects the winning candidate via select_best_path.
+    
+    Returns:
+      selected, answer, candidates [each augmented with step_scores, rationales],
+      generation_calls, judge_calls, generated_tokens, judge_tokens, time_seconds
     """
-    # TODO: Implement PRM Best-of-N search pipeline
+    # TODO: Implement PRM Best-of-N search over candidate trajectories
     raise NotImplementedError("Implement run_prm_best_of_n in src/search.py")
 
 
 def run_compute_matched_self_consistency(
-    generate_fn: GenerateFn, 
-    question: str, 
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
     target_calls: int = 15, 
-    existing_candidates: list[dict[str, Any]] | None = None
+    temperature: float = 0.7, 
+    existing_candidates: list[dict[str, Any]] | None = None, 
+    generate_fn: GenerateFn | None = None
 ) -> dict[str, Any]:
     """
-    Executes compute-matched Self-Consistency with target_calls total paths.
+    Executes compute-matched Self-Consistency aggregating target_calls paths.
     If existing_candidates are supplied, samples only the deficit:
     target_calls - len(existing_candidates).
+    
+    Returns:
+      candidates, answer, generation_calls (new samples only), total_samples,
+      generated_tokens (new samples only), time_seconds
     """
-    # TODO: Implement compute-matched Self-Consistency sampling
+    # TODO: Implement compute-matched Self-Consistency with sample reuse
     raise NotImplementedError("Implement run_compute_matched_self_consistency in src/search.py")

@@ -4,6 +4,8 @@ src/generation.py - Prompt formatting and baseline generation routines.
 from typing import Any, Callable
 
 GenerateFn = Callable[[str, int, dict], list[dict]]
+# generate_fn(raw_prompt, num_samples, gen_kwargs) -> list of {"text": str, "num_tokens": int}
+# gen_kwargs carries do_sample/temperature/top_p/top_k/repetition_penalty/max_new_tokens
 
 
 def format_step_prompt(question: str) -> str:
@@ -27,23 +29,38 @@ def compute_majority_vote(answers: list[int | None]) -> int | None:
     raise NotImplementedError("Implement compute_majority_vote in src/generation.py")
 
 
-def run_greedy(generate_fn: GenerateFn, question: str) -> dict[str, Any]:
+def run_greedy(
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
+    generate_fn: GenerateFn | None = None
+) -> dict[str, Any]:
     """
-    Executes greedy decoding for a single question using generate_fn.
-    Must call generate_fn with num_samples=1 and gen_kwargs containing do_sample=False.
+    Executes greedy decoding for a single question.
+    Calls generate_fn with num_samples=1 and gen_kwargs containing do_sample=False,
+    temperature=None, top_p=None, top_k=None.
+    
+    Returns:
+      prompt, completion, steps, answer, generation_calls, generated_tokens, time_seconds
     """
     # TODO: Implement greedy baseline decoding
     raise NotImplementedError("Implement run_greedy in src/generation.py")
 
 
 def run_self_consistency(
-    generate_fn: GenerateFn, 
-    question: str, 
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
     n: int = 5, 
-    temperature: float = 0.7
+    temperature: float = 0.7, 
+    generate_fn: GenerateFn | None = None
 ) -> dict[str, Any]:
     """
     Samples n diverse reasoning trajectories and aggregates candidate answers via majority vote.
+    
+    Returns:
+      candidates [each: completion, steps, answer, num_tokens], answer, 
+      generation_calls, generated_tokens, time_seconds
     """
     # TODO: Implement Self-Consistency sampling and majority voting
     raise NotImplementedError("Implement run_self_consistency in src/generation.py")

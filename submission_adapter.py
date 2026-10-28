@@ -13,10 +13,8 @@ from typing import Any, Callable
 
 # Type Aliases for injectable callables (Autograding Harness)
 GenerateFn = Callable[[str, int, dict], list[dict]]
-# generate_fn(prompt, num_samples, gen_kwargs) -> list of
-#   {"text": str, "num_tokens": int}, length == num_samples.
-# The prompt is the RAW instruction string from format_step_prompt;
-# generate_fn is responsible for applying the chat template.
+# generate_fn(raw_prompt, num_samples, gen_kwargs) -> list of {"text": str, "num_tokens": int}
+# gen_kwargs carries do_sample/temperature/top_p/top_k/repetition_penalty/max_new_tokens
 
 JudgeFn = Callable[[str], dict]
 # judge_fn(judge_prompt) -> {"text": str, "num_tokens": int}
@@ -121,7 +119,7 @@ def build_prm_judge_prompt(question: str, preceding_steps: list[str], current_st
 
 
 def parse_judge_decision(judge_output: str) -> tuple[float, str]:
-    r"""Parses the judge model's raw text completion.
+    r"""Parses the judge model's raw text completion into (score, rationale).
     
     Rules:
       1. If a line matches /verdict\s*:\s*\**\s*(VALID|INVALID)\b/i, use it.
@@ -206,15 +204,17 @@ def select_best_path(
     raise NotImplementedError("Implement select_best_path")
 
 
-def run_greedy(generate_fn: GenerateFn, question: str) -> dict[str, Any]:
-    """Executes deterministic greedy decoding for a question using generate_fn.
+def run_greedy(
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
+    generate_fn: GenerateFn | None = None
+) -> dict[str, Any]:
+    """Executes deterministic greedy decoding for a question.
     
-    Must call generate_fn with num_samples=1 and gen_kwargs containing do_sample=False.
+    Must call generate_fn with num_samples=1 and gen_kwargs containing do_sample=False,
+    temperature=None, top_p=None, top_k=None.
     
-    Args:
-        generate_fn: Callable taking (prompt, num_samples, gen_kwargs).
-        question: Raw math question string.
-        
     Returns:
         Dict with keys:
           'prompt': formatted prompt string,
@@ -222,44 +222,46 @@ def run_greedy(generate_fn: GenerateFn, question: str) -> dict[str, Any]:
           'steps': parsed list of steps,
           'answer': extracted final answer int or None,
           'generation_calls': 1,
-          'generated_tokens': total tokens produced
+          'generated_tokens': total tokens produced,
+          'time_seconds': float elapsed time
     """
     raise NotImplementedError("Implement run_greedy")
 
 
 def run_self_consistency(
-    generate_fn: GenerateFn, 
-    question: str, 
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
     n: int = 5, 
-    temperature: float = 0.7
+    temperature: float = 0.7, 
+    generate_fn: GenerateFn | None = None
 ) -> dict[str, Any]:
     """Samples n diverse reasoning trajectories and aggregates candidate answers via majority vote.
     
-    Args:
-        generate_fn: Callable taking (prompt, num_samples, gen_kwargs).
-        question: Raw math question string.
-        n: Number of candidate paths to sample (default 5).
-        temperature: Sampling temperature (default 0.7).
-        
     Returns:
         Dict with keys:
           'candidates': list of dicts with 'completion', 'steps', 'answer', 'num_tokens',
           'answer': majority voted answer int or None,
           'generation_calls': n,
-          'generated_tokens': total tokens produced across all candidates
+          'generated_tokens': total tokens produced across all candidates,
+          'time_seconds': float elapsed time
     """
     raise NotImplementedError("Implement run_self_consistency")
 
 
-def score_path(judge_fn: JudgeFn, question: str, steps: list[str]) -> dict[str, Any]:
-    """Sequentially scores each step in a reasoning path using judge_fn.
+def score_path(
+    judge_model: Any = None, 
+    judge_tokenizer: Any = None, 
+    question: str = "", 
+    candidate: dict[str, Any] | None = None, 
+    judge_fn: JudgeFn | None = None
+) -> dict[str, Any]:
+    """Sequentially scores each step in candidate["steps"] using judge_fn.
     Step t is judged with preceding_steps = steps[:t].
     
-    Args:
-        judge_fn: Callable taking judge_prompt and returning {'text', 'num_tokens'}.
-        question: Original problem statement.
-        steps: List of reasoning step strings.
-        
+    The student's code MUST call build_prm_judge_prompt to build the string passed to judge_fn,
+    and MUST call parse_judge_decision on the returned text.
+    
     Returns:
         Dict with keys:
           'step_scores': list of float scores (+1.0 or -1.0),
@@ -271,30 +273,26 @@ def score_path(judge_fn: JudgeFn, question: str, steps: list[str]) -> dict[str, 
 
 
 def run_prm_best_of_n(
-    generate_fn: GenerateFn, 
-    judge_fn: JudgeFn, 
-    question: str, 
+    model: Any = None, 
+    judge_model: Any = None, 
+    gen_tokenizer: Any = None, 
+    judge_tokenizer: Any = None, 
+    question: str = "", 
     n: int = 5, 
     aggregation_strategy: str = "min", 
     penalty_lambda: float = 2.0, 
-    candidates: list[dict[str, Any]] | None = None
+    candidates: list[dict[str, Any]] | None = None, 
+    generate_fn: GenerateFn | None = None, 
+    judge_fn: JudgeFn | None = None
 ) -> dict[str, Any]:
-    """Executes PRM-guided Best-of-N search over reasoning trajectories.
+    """Executes PRM-guided Best-of-N search over candidate trajectories.
     
-    If candidates is provided (shared candidate pool), does NOT sample new paths.
+    If candidates is provided (shared candidate pool), does NOT sample new paths
+    (generation_calls = 0, generated_tokens = 0).
     Otherwise, samples n candidates.
     Every candidate has all steps scored by judge_fn (no early stopping).
     Selects the winning candidate via select_best_path.
     
-    Args:
-        generate_fn: Generation callable.
-        judge_fn: PRM verification callable.
-        question: Problem statement.
-        n: Number of candidates to sample if candidates is None (default 5).
-        aggregation_strategy: Aggregation strategy ('min', 'product', 'step_penalty').
-        penalty_lambda: Penalty weight if using 'step_penalty'.
-        candidates: Optional pre-sampled candidate list (for shared pool evaluation).
-        
     Returns:
         Dict with keys:
           'selected': winning candidate dict from select_best_path,
@@ -303,34 +301,33 @@ def run_prm_best_of_n(
           'generation_calls': int (new samples drawn inside this call; 0 if candidates provided),
           'judge_calls': int (total step evaluations),
           'generated_tokens': int (new samples only),
-          'judge_tokens': int (total judge output tokens)
+          'judge_tokens': int (total judge output tokens),
+          'time_seconds': float elapsed time
     """
     raise NotImplementedError("Implement run_prm_best_of_n")
 
 
 def run_compute_matched_self_consistency(
-    generate_fn: GenerateFn, 
-    question: str, 
+    model: Any = None, 
+    tokenizer: Any = None, 
+    question: str = "", 
     target_calls: int = 15, 
-    existing_candidates: list[dict[str, Any]] | None = None
+    temperature: float = 0.7, 
+    existing_candidates: list[dict[str, Any]] | None = None, 
+    generate_fn: GenerateFn | None = None
 ) -> dict[str, Any]:
     """Executes compute-matched Self-Consistency aggregating target_calls paths.
     
     If existing_candidates is provided, samples only target_calls - len(existing_candidates).
     Votes over all candidates combined.
     
-    Args:
-        generate_fn: Generation callable.
-        question: Problem statement.
-        target_calls: Total target candidate paths (default 15).
-        existing_candidates: Optional pre-sampled candidates (e.g. from SC-5).
-        
     Returns:
         Dict with keys:
           'candidates': list of all target_calls candidate dicts,
           'answer': majority vote over all candidate answers,
           'generation_calls': int (new samples drawn only),
           'total_samples': int (=target_calls),
-          'generated_tokens': int (new samples only)
+          'generated_tokens': int (new samples only),
+          'time_seconds': float elapsed time
     """
     raise NotImplementedError("Implement run_compute_matched_self_consistency")
