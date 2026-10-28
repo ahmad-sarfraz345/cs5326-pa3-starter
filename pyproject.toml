@@ -10,15 +10,16 @@ authors = [{ name = "Muhammad Ahmad Sarfraz" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "transformers>=4.44.0",
-    "bitsandbytes>=0.43.0",
-    "accelerate>=0.33.0",
-    "pytest>=8.0",
+    "transformers==4.45.2",
+    "bitsandbytes==0.44.1",
+    "accelerate==0.34.2",
+    "datasets==3.0.1",
+    "pytest==8.3.3",
     "tqdm",
     "numpy",
+    "tabulate",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-

@@ -109,19 +109,63 @@ def load_models(generator_device: str = "cuda:0", judge_device: str = "cuda:1"):
     return gen_model, gen_tokenizer, judge_model, judge_tokenizer
 
 
+def _get_eos_token_ids(model: Any, tokenizer: Any) -> set[int]:
+    """Extracts all EOS token IDs from model.generation_config and tokenizer."""
+    eos_ids: set[int] = set()
+    if hasattr(model, "generation_config") and model.generation_config is not None:
+        cfg_eos = getattr(model.generation_config, "eos_token_id", None)
+        if cfg_eos is not None:
+            if isinstance(cfg_eos, int):
+                eos_ids.add(cfg_eos)
+            elif isinstance(cfg_eos, (list, tuple, set)):
+                eos_ids.update(cfg_eos)
+    if tokenizer is not None:
+        tok_eos = getattr(tokenizer, "eos_token_id", None)
+        if tok_eos is not None:
+            if isinstance(tok_eos, int):
+                eos_ids.add(tok_eos)
+            elif isinstance(tok_eos, (list, tuple, set)):
+                eos_ids.update(tok_eos)
+    return eos_ids
+
+
+def _slice_to_first_eos(gen_tokens: Any, eos_ids: set[int]) -> Any:
+    """Slices token sequence up to and including the first EOS token."""
+    if hasattr(gen_tokens, "tolist"):
+        ids = gen_tokens.tolist()
+    else:
+        ids = list(gen_tokens)
+    first_eos_idx = None
+    for idx, tok in enumerate(ids):
+        if tok in eos_ids:
+            first_eos_idx = idx
+            break
+    if first_eos_idx is not None:
+        return gen_tokens[:first_eos_idx + 1]
+    return gen_tokens
+
+
 def make_hf_generate_fn(model: Any, tokenizer: Any) -> Callable[[str, int, dict], list[dict]]:
     """
     Factory creating a GenerateFn conforming to submission_adapter contract.
     Applies the Qwen chat template to raw instruction prompts.
     """
     def generate_fn(prompt: str, num_samples: int, gen_kwargs: dict) -> list[dict]:
-        import torch
+        try:
+            import torch
+            no_grad_ctx = torch.no_grad
+        except ImportError:
+            class _NoGrad:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            no_grad_ctx = lambda: _NoGrad()
+
         messages = [{"role": "user", "content": prompt}]
         formatted_prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = tokenizer(formatted_prompt, return_tensors="pt")
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        inputs = {k: v.to(model.device) if hasattr(v, "to") else v for k, v in inputs.items()}
         prompt_len = inputs["input_ids"].shape[1]
 
         kwargs = dict(gen_kwargs)
@@ -135,14 +179,16 @@ def make_hf_generate_fn(model: Any, tokenizer: Any) -> Callable[[str, int, dict]
 
         kwargs.setdefault("pad_token_id", tokenizer.eos_token_id)
 
-        with torch.no_grad():
+        with no_grad_ctx():
             output_ids = model.generate(**inputs, **kwargs)
 
+        eos_ids = _get_eos_token_ids(model, tokenizer)
         results = []
         for i in range(output_ids.shape[0]):
             gen_tokens = output_ids[i][prompt_len:]
-            text = tokenizer.decode(gen_tokens, skip_special_tokens=True)
-            results.append({"text": text, "num_tokens": len(gen_tokens)})
+            gen_tokens_valid = _slice_to_first_eos(gen_tokens, eos_ids)
+            text = tokenizer.decode(gen_tokens_valid, skip_special_tokens=True)
+            results.append({"text": text, "num_tokens": len(gen_tokens_valid)})
         return results
 
     return generate_fn
@@ -154,23 +200,34 @@ def make_hf_judge_fn(judge_model: Any, judge_tokenizer: Any) -> Callable[[str], 
     Applies the Qwen chat template to raw judge prompts.
     """
     def judge_fn(judge_prompt: str) -> dict:
-        import torch
+        try:
+            import torch
+            no_grad_ctx = torch.no_grad
+        except ImportError:
+            class _NoGrad:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            no_grad_ctx = lambda: _NoGrad()
+
         messages = [{"role": "user", "content": judge_prompt}]
         formatted = judge_tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = judge_tokenizer(formatted, return_tensors="pt")
-        inputs = {k: v.to(judge_model.device) for k, v in inputs.items()}
+        inputs = {k: v.to(judge_model.device) if hasattr(v, "to") else v for k, v in inputs.items()}
         prompt_len = inputs["input_ids"].shape[1]
 
         kwargs = dict(JUDGE_GEN_KWARGS)
         kwargs.setdefault("pad_token_id", judge_tokenizer.eos_token_id)
 
-        with torch.no_grad():
+        with no_grad_ctx():
             output_ids = judge_model.generate(**inputs, **kwargs)
+
+        eos_ids = _get_eos_token_ids(judge_model, judge_tokenizer)
         gen_tokens = output_ids[0][prompt_len:]
-        text = judge_tokenizer.decode(gen_tokens, skip_special_tokens=True)
-        return {"text": text, "num_tokens": len(gen_tokens)}
+        gen_tokens_valid = _slice_to_first_eos(gen_tokens, eos_ids)
+        text = judge_tokenizer.decode(gen_tokens_valid, skip_special_tokens=True)
+        return {"text": text, "num_tokens": len(gen_tokens_valid)}
 
     return judge_fn
 

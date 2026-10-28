@@ -34,7 +34,11 @@ cs5326-pa3/
 |   |-- __init__.py
 |   `-- test_public_adapter_smoke.py # Public smoke test suite for grading interface
 |-- outputs/                         # Generated predictions and metric dumps
-|   `-- results_summary.json         # Automated metrics table across all 4 configurations
+|   |-- results_summary.json         # Automated metrics table across all 6 configurations
+|   |-- aggregation_ablation.json    # Aggregation strategies and lambda sweep ablation
+|   |-- sc_scaling_curve.json        # Self-consistency scaling curve (N=1..15)
+|   `-- per_problem.jsonl            # Detailed per-problem records and step scores
+|-- run_pipeline.ipynb               # End-to-end evaluation pipeline notebook
 |-- submission_adapter.py            # Grading adapter contract (Required)
 |-- requirements.txt
 |-- pyproject.toml
@@ -66,30 +70,23 @@ Create a new Kaggle notebook, set the **Accelerator** in the top sidebar to **GP
 %cd cs5326-pa3-starter
 !pip install -q -r requirements.txt
 ```
-Load the reference model in 4-bit NF4 precision within ~5.5 GB VRAM:
+Load the dual models (1.5B generator in fp16 on cuda:0, 7B judge in 4-bit NF4 on cuda:1):
 ```python
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from src.utils import load_models, make_hf_generate_fn, make_hf_judge_fn
 
-model_id = "Qwen/Qwen2.5-7B-Instruct"
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.float16,
-    bnb_4bit_use_double_quant=True
+gen_model, gen_tokenizer, judge_model, judge_tokenizer = load_models(
+    generator_device="cuda:0",
+    judge_device="cuda:1"
 )
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    quantization_config=bnb_config,
-    device_map="auto"
-)
+gen_fn = make_hf_generate_fn(gen_model, gen_tokenizer)
+judge_fn = make_hf_judge_fn(judge_model, judge_tokenizer)
 ```
+*(Warning: Never use `device_map="auto"` across two GPUs for a single model!)*
 
 #### 4. Packaging Your Submission
-When your implementation passes all tests and your benchmark run produces `outputs/results_summary.json`:
+When your implementation passes all tests and your benchmark run produces all required artifacts in `outputs/`:
 ```bash
 bash make_submission.sh <your_roll_number>
 ```
-This generates `<your_roll_number>_pa3.zip` containing your `src/`, `submission_adapter.py`, `outputs/results_summary.json`, and `REPORT.pdf`. Upload this archive to LMS.
+This generates `<your_roll_number>_pa3.zip` containing `src/`, `submission_adapter.py`, `run_pipeline.ipynb` (or `run_all.py`), `outputs/per_problem.jsonl`, `outputs/results_summary.json`, `outputs/aggregation_ablation.json`, `outputs/sc_scaling_curve.json`, and `REPORT.pdf`. Upload this archive to LMS.
 

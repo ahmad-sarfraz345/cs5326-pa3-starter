@@ -18,8 +18,6 @@ if [ -f "run_pipeline.ipynb" ]; then
     PIPELINE_FILE="run_pipeline.ipynb"
 elif [ -f "run_all.py" ]; then
     PIPELINE_FILE="run_all.py"
-elif [ -f "pa3_kaggle_solution.ipynb" ]; then
-    PIPELINE_FILE="pa3_kaggle_solution.ipynb"
 else
     echo "Error: Neither run_pipeline.ipynb nor run_all.py found in repository root."
     echo "Please provide your runnable pipeline notebook or script."
