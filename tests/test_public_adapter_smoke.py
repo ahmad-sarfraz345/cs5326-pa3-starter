@@ -1,169 +1,383 @@
 """
-CS 5326: Public Smoke Tests for submission_adapter.py.
-Can be executed with either:
-    python tests/test_public_adapter_smoke.py
-or:
-    pytest -v tests/test_public_adapter_smoke.py
-"""
-import math
-import sys
-import os
+tests/test_public_adapter_smoke.py - Public smoke test suite for submission_adapter.py.
 
-# Ensure repository root is on sys.path
+This test suite runs completely offline with no network, GPU, or third-party dependencies.
+It validates that your implementation conforms strictly to the submission_adapter contract.
+
+Usage:
+  pytest -v tests/test_public_adapter_smoke.py
+  python tests/test_public_adapter_smoke.py
+"""
+import copy
+import os
+import sys
+
+# Ensure parent directory is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import submission_adapter as adapter
 
 
+# =====================================================================
+# Mock Helpers for Autograding Verification
+# =====================================================================
+def make_mock_generate_fn(responses: list[str], token_counts: list[int] | None = None):
+    """Factory creating a mock GenerateFn for offline testing."""
+    call_idx = [0]
+    recorded_kwargs = []
+
+    def generate_fn(prompt: str, num_samples: int, gen_kwargs: dict) -> list[dict]:
+        recorded_kwargs.append(copy.deepcopy(gen_kwargs))
+        results = []
+        for _ in range(num_samples):
+            idx = call_idx[0] % len(responses)
+            call_idx[0] += 1
+            text = responses[idx]
+            toks = token_counts[idx] if token_counts else len(text.split())
+            results.append({"text": text, "num_tokens": toks})
+        return results
+
+    generate_fn.recorded_kwargs = recorded_kwargs  # type: ignore
+    generate_fn.call_idx = call_idx  # type: ignore
+    return generate_fn
+
+
+def make_mock_judge_fn(decisions: list[str], token_counts: list[int] | None = None):
+    """Factory creating a mock JudgeFn for offline testing."""
+    call_idx = [0]
+    prompts_seen = []
+
+    def judge_fn(judge_prompt: str) -> dict:
+        prompts_seen.append(judge_prompt)
+        idx = call_idx[0] % len(decisions)
+        call_idx[0] += 1
+        text = decisions[idx]
+        toks = token_counts[idx] if token_counts else len(text.split())
+        return {"text": text, "num_tokens": toks}
+
+    judge_fn.prompts_seen = prompts_seen  # type: ignore
+    judge_fn.call_idx = call_idx  # type: ignore
+    return judge_fn
+
+
+# =====================================================================
+# Task 1: Prompting, Extraction, and Baselines Tests
+# =====================================================================
 def test_format_step_prompt():
-    q = "Janet has 16 eggs. She eats 3 and bakes with 4. How many eggs are left?"
-    prompt = adapter.format_step_prompt(q)
+    prompt = adapter.format_step_prompt("What is 10 + 20?")
     assert isinstance(prompt, str)
-    assert q in prompt
-    assert "Step" in prompt
+    assert "What is 10 + 20?" in prompt
+    assert "Step 1" in prompt
     assert "Final Answer" in prompt
 
 
-def test_parse_steps():
+def test_parse_steps_plain():
     text = (
-        "Here is my step by step thought process:\n"
-        "Step 1: Janet starts with 16 eggs.\n"
-        "Step 2: She uses 3 + 4 = 7 eggs.\n"
-        "Step 3: Remaining eggs are 16 - 7 = 9.\n"
-        "Final Answer: 9"
+        "Step 1: Compute 10 + 20 = 30.\n"
+        "Step 2: Multiply 30 by 2 to get 60.\n"
+        "Final Answer: 60"
     )
     steps = adapter.parse_steps(text)
-    assert isinstance(steps, list)
-    assert len(steps) == 3
-    assert "starts with 16 eggs" in steps[0]
-    assert "uses 3 + 4 = 7 eggs" in steps[1]
-    assert "16 - 7 = 9" in steps[2]
+    assert len(steps) == 2
+    assert "Compute 10 + 20 = 30." in steps[0]
+    assert "Multiply 30 by 2 to get 60." in steps[1]
 
 
-def test_extract_answer_clean():
-    text = "Step 1: 5 + 5 = 10\nFinal Answer: 10"
-    assert adapter.extract_answer(text) == 10
+def test_parse_steps_markdown_decorated():
+    text = (
+        "**Step 1:** Add 5 and 5 to get 10.\n"
+        "### Step 2: Multiply 10 * 3.\n"
+        "**Final Answer:** 30"
+    )
+    steps = adapter.parse_steps(text)
+    assert len(steps) == 2
+    assert "Add 5 and 5 to get 10." in steps[0]
+    assert not steps[0].startswith("*")
+    assert "Multiply 10 * 3." in steps[1]
+    assert not steps[1].startswith("#")
 
 
-def test_extract_answer_formatting_variants():
-    # Dollar signs
-    assert adapter.extract_answer("Step 1: calc\nFinal Answer: $18") == 18
-    # Commas in large numbers
-    assert adapter.extract_answer("Step 1: calc\nFinal Answer: 140,000") == 140000
-    # Negative integers
-    assert adapter.extract_answer("Step 1: calc\nFinal Answer: -42") == -42
-    # Punctuation / extra trailing text
-    assert adapter.extract_answer("Step 1: calc\nFinal Answer: 25.") == 25
+def test_extract_answer_required_behaviors():
+    cases = [
+        ("Final Answer: 18", 18),
+        ("Final Answer: $1,234", 1234),
+        ("Final Answer: 18.00", 18),
+        ("Final Answer: 18.5", None),
+        ("Final Answer: -5", -5),
+        ("Final Answer: 18 dollars.", 18),
+        ("**Final Answer:** 18", 18),
+        ("final answer 18", 18),
+        ("First line.\nFinal Answer: 10\nSecond line.\nFinal Answer: 42", 42),
+        ("There is no answer here.", None),
+        ("", None),
+    ]
+    for completion, expected in cases:
+        actual = adapter.extract_answer(completion)
+        assert actual == expected, f"Failed for '{completion}': expected {expected}, got {actual}"
 
 
-def test_extract_answer_malformed():
-    assert adapter.extract_answer("I think the answer is 42.") is None
-    assert adapter.extract_answer("") is None
-    assert adapter.extract_answer("Final Answer: none") is None
+def test_extract_answer_resilience():
+    assert adapter.extract_answer(None) is None  # type: ignore
+    assert adapter.extract_answer("Final Answer: [object Object]") is None
+    assert adapter.extract_answer("Final Answer: None") is None
 
 
-def test_compute_majority_vote_unanimous():
-    answers = [18, 18, 18, 18, 18]
-    assert adapter.compute_majority_vote(answers) == 18
-
-
-def test_compute_majority_vote_clear_winner():
-    answers = [12, 18, 18, 18, 24]
-    assert adapter.compute_majority_vote(answers) == 18
-
-
-def test_compute_majority_vote_with_nones():
-    answers = [None, 15, None, 15, 20]
-    assert adapter.compute_majority_vote(answers) == 15
-
-
-def test_compute_majority_vote_all_nones():
-    assert adapter.compute_majority_vote([None, None, None]) is None
+def test_compute_majority_vote():
+    # Unanimous
+    assert adapter.compute_majority_vote([42, 42, 42]) == 42
+    # Clear winner
+    assert adapter.compute_majority_vote([10, 20, 10, 30]) == 10
+    # Tie broken to earliest candidate
+    assert adapter.compute_majority_vote([10, 20, 20, 10]) == 10
+    assert adapter.compute_majority_vote([20, 10, 10, 20]) == 20
+    # Ignores Nones
+    assert adapter.compute_majority_vote([None, 15, None, 15, 7]) == 15
+    # All None or empty
+    assert adapter.compute_majority_vote([None, None]) is None
     assert adapter.compute_majority_vote([]) is None
 
 
-def test_compute_majority_vote_tie_breaking():
-    # 10 appears before 20; both have 2 votes. Must pick 10 deterministically.
-    answers = [10, 20, 10, 20]
-    assert adapter.compute_majority_vote(answers) == 10
-    
-    # 20 appears before 10; both have 2 votes. Must pick 20 deterministically.
-    answers = [20, 10, 10, 20]
-    assert adapter.compute_majority_vote(answers) == 20
+def test_run_greedy():
+    mock_gen = make_mock_generate_fn(
+        ["Step 1: Add 2 and 3 to get 5.\nFinal Answer: 5"],
+        token_counts=[12],
+    )
+    res = adapter.run_greedy(mock_gen, "What is 2 + 3?")
+    assert res["answer"] == 5
+    assert len(res["steps"]) == 1
+    assert res["generation_calls"] == 1
+    assert res["generated_tokens"] == 12
+    assert "prompt" in res
+    assert "completion" in res
+    assert mock_gen.recorded_kwargs[0].get("do_sample") is False
 
 
-def test_build_prm_judge_prompt():
-    q = "What is 2 + 2?"
-    preceding = ["Step 1: Let x = 2."]
-    curr = "Step 2: 2 + 2 = 4."
-    prompt = adapter.build_prm_judge_prompt(q, preceding, curr)
-    assert isinstance(prompt, str)
-    assert q in prompt
-    assert preceding[0] in prompt
-    assert curr in prompt
-    assert "VALID" in prompt
-    assert "INVALID" in prompt
-
-
-def test_parse_judge_decision_valid():
-    output = "Decision: VALID\nRationale: The arithmetic 3 + 4 = 7 is completely correct."
-    score, rationale = adapter.parse_judge_decision(output)
-    assert score == 1.0
-    assert "arithmetic" in rationale.lower()
-
-
-def test_parse_judge_decision_invalid():
-    output = "Decision: INVALID\nRationale: The student computed 16 - 7 = 8 which is incorrect."
-    score, rationale = adapter.parse_judge_decision(output)
-    assert score == -1.0
-    assert "incorrect" in rationale.lower()
-
-
-def test_parse_judge_decision_fallback():
-    # Garbled or incomplete output must safely default to -1.0
-    score, rationale = adapter.parse_judge_decision("I am not sure about this.")
-    assert score == -1.0
-
-
-def test_aggregate_path_score_min():
-    # Sound path
-    assert adapter.aggregate_path_score([1.0, 1.0, 1.0], strategy="min") == 1.0
-    # One flawed step
-    assert adapter.aggregate_path_score([1.0, -1.0, 1.0], strategy="min") == -1.0
-    # Empty path
-    assert adapter.aggregate_path_score([], strategy="min") == -1.0
-
-
-def test_aggregate_path_score_product():
-    # All valid steps should have high product
-    score_clean = adapter.aggregate_path_score([1.0, 1.0, 1.0], strategy="product")
-    # Path with flawed step should have drastically lower product
-    score_flawed = adapter.aggregate_path_score([1.0, -1.0, 1.0], strategy="product")
-    assert score_clean > score_flawed
-    assert score_flawed > 0.0
-
-
-def test_aggregate_path_score_penalty():
-    score_clean = adapter.aggregate_path_score([1.0, 1.0, 1.0], strategy="step_penalty")
-    score_flawed = adapter.aggregate_path_score([1.0, -1.0, 1.0], strategy="step_penalty")
-    assert abs(score_clean - 1.0) < 1e-5
-    # 1/3 * (1 - 1 + 1) - 2.0 * 1 = 1/3 - 2 = -1.6667
-    assert score_flawed < 0.0
-
-
-def test_select_best_path():
-    candidates = [
-        {"steps": ["s1", "s2"], "step_scores": [1.0, -1.0], "answer": 12}, # Flawed
-        {"steps": ["s1", "s2", "s3"], "step_scores": [1.0, 1.0, 1.0], "answer": 18}, # Clean
-        {"steps": ["s1"], "step_scores": [-1.0], "answer": 24}, # Flawed
+def test_run_self_consistency():
+    responses = [
+        "Step 1: Compute.\nFinal Answer: 10",
+        "Step 1: Compute.\nFinal Answer: 20",
+        "Step 1: Compute.\nFinal Answer: 10",
     ]
-    winner = adapter.select_best_path(candidates, aggregation_strategy="min")
-    assert winner["answer"] == 18
-    assert winner["path_score"] == 1.0
+    mock_gen = make_mock_generate_fn(responses, token_counts=[10, 10, 10])
+    res = adapter.run_self_consistency(mock_gen, "What is X?", n=3, temperature=0.7)
+    assert res["answer"] == 10
+    assert len(res["candidates"]) == 3
+    assert res["generation_calls"] == 3
+    assert res["generated_tokens"] == 30
+    assert mock_gen.recorded_kwargs[0].get("do_sample") is True
+    assert mock_gen.recorded_kwargs[0].get("temperature") == 0.7
 
 
-if __name__ == "__main__":
-    test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
+# =====================================================================
+# Task 2: PRM Judge & Step Verification Tests
+# =====================================================================
+def test_build_prm_judge_prompt_structure():
+    # Empty preceding steps
+    p_first = adapter.build_prm_judge_prompt("What is 2 + 2?", [], "2 + 2 = 4")
+    assert "What is 2 + 2?" in p_first
+    assert "2 + 2 = 4" in p_first
+    assert "Verdict: VALID" in p_first
+    assert "Rationale:" in p_first
+
+    # Preceding steps included in order
+    preceding = ["Step A: Let x = 2", "Step B: Let y = 3"]
+    p_later = adapter.build_prm_judge_prompt("Find x + y", preceding, "Step C: x + y = 5")
+    assert "Step A: Let x = 2" in p_later
+    assert "Step B: Let y = 3" in p_later
+    assert "Step C: x + y = 5" in p_later
+
+
+def test_parse_judge_decision():
+    cases = [
+        ("Verdict: VALID\nRationale: Step is sound.", 1.0, "Step is sound"),
+        ("Verdict: INVALID\nRationale: Calculation error.", -1.0, "Calculation error"),
+        ("Verdict: **VALID**\nRationale: Correct algebra.", 1.0, "Correct algebra"),
+        ("Verdict: **INVALID**\nRationale: Arithmetic flaw.", -1.0, "Arithmetic flaw"),
+        ("verdict: invalid\nrationale: false premise.", -1.0, "false premise"),
+        ("The step is NOT VALID because of bad arithmetic.", -1.0, ""),
+        ("The step is valid and sound.", 1.0, ""),
+        ("The step is invalid.", -1.0, ""),  # Substring trap: INVALID contains VALID
+        ("Verdict: INVALID\nVerdict: VALID", -1.0, ""),  # First verdict line used
+        ("Total gibberish output without decision.", -1.0, ""),
+        ("", -1.0, ""),
+    ]
+    for judge_text, expected_score, expected_rat_sub in cases:
+        score, rationale = adapter.parse_judge_decision(judge_text)
+        assert score == expected_score, f"Failed score for '{judge_text}': got {score}, expected {expected_score}"
+        if expected_rat_sub:
+            assert expected_rat_sub.lower() in rationale.lower()
+
+
+def test_score_path():
+    steps = ["Step 1: x = 10", "Step 2: y = 20", "Step 3: x + y = 30"]
+    judge_responses = [
+        "Verdict: VALID\nRationale: Good x.",
+        "Verdict: VALID\nRationale: Good y.",
+        "Verdict: INVALID\nRationale: Bad sum.",
+    ]
+    mock_judge = make_mock_judge_fn(judge_responses, token_counts=[8, 8, 9])
+    res = adapter.score_path(mock_judge, "Problem text", steps)
+    assert res["step_scores"] == [1.0, 1.0, -1.0]
+    assert len(res["rationales"]) == 3
+    assert res["judge_calls"] == 3
+    assert res["judge_tokens"] == 25
+    # Verify preceding steps were passed sequentially
+    assert len(mock_judge.prompts_seen) == 3
+    assert "Step 1: x = 10" in mock_judge.prompts_seen[1]
+    assert "Step 2: y = 20" in mock_judge.prompts_seen[2]
+
+
+def test_aggregate_path_score():
+    # Empty list returns -1.0 for all strategies
+    assert adapter.aggregate_path_score([]) == -1.0
+    assert adapter.aggregate_path_score([], strategy="product") == -1.0
+    assert adapter.aggregate_path_score([], strategy="step_penalty") == -1.0
+
+    # min
+    assert adapter.aggregate_path_score([1.0, 1.0, 1.0], strategy="min") == 1.0
+    assert adapter.aggregate_path_score([1.0, -1.0, 1.0], strategy="min") == -1.0
+
+    # product: p_t clamped in [0.01, 0.99]
+    p_all = adapter.aggregate_path_score([1.0, 1.0, 1.0], strategy="product")
+    assert abs(p_all - (0.99 ** 3)) < 1e-6
+    p_one_inv = adapter.aggregate_path_score([1.0, -1.0, 1.0], strategy="product")
+    assert abs(p_one_inv - (0.99 * 0.99 * 0.01)) < 1e-6
+
+    # step_penalty: mean - lambda * num_invalid
+    assert adapter.aggregate_path_score([1.0, 1.0], strategy="step_penalty", penalty_lambda=2.0) == 1.0
+    assert adapter.aggregate_path_score([1.0, -1.0], strategy="step_penalty", penalty_lambda=2.0) == -2.0
+    assert adapter.aggregate_path_score([1.0, -1.0], strategy="step_penalty", penalty_lambda=0.5) == -0.5
+
+    # Unknown strategy raises ValueError
+    try:
+        adapter.aggregate_path_score([1.0], strategy="unsupported_strategy")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+# =====================================================================
+# Task 3: Best-of-N Search & Budget Matching Tests
+# =====================================================================
+def test_select_best_path_clear_winner():
+    cands = [
+        {"steps": ["s1"], "step_scores": [-1.0], "answer": 10},
+        {"steps": ["s1"], "step_scores": [1.0], "answer": 20},
+    ]
+    orig_cands = copy.deepcopy(cands)
+    win = adapter.select_best_path(cands, aggregation_strategy="min")
+    assert win["answer"] == 20
+    assert win["path_score"] == 1.0
+    assert win["num_tied"] == 1
+    # Verify inputs are not mutated
+    assert cands == orig_cands
+
+
+def test_select_best_path_tie_broken_by_majority():
+    # Candidates 0, 1, 2 all tie with score 1.0. Answers: 10, 20, 20.
+    # Majority answer is 20. Candidate 1 is lowest-index candidate with answer 20.
+    cands = [
+        {"steps": ["s1"], "step_scores": [1.0], "answer": 10},
+        {"steps": ["s1"], "step_scores": [1.0], "answer": 20},
+        {"steps": ["s1"], "step_scores": [1.0], "answer": 20},
+    ]
+    win = adapter.select_best_path(cands, aggregation_strategy="min")
+    assert win["answer"] == 20
+    assert win["num_tied"] == 3
+    assert win["steps"] == ["s1"]
+
+
+def test_select_best_path_answer_none_exclusion():
+    cands = [
+        {"steps": ["s1"], "step_scores": [1.0], "answer": None},  # Max score but answer is None
+        {"steps": ["s1"], "step_scores": [-1.0], "answer": 42},   # Lower score but valid answer
+    ]
+    win = adapter.select_best_path(cands, aggregation_strategy="min")
+    assert win["answer"] == 42
+    assert win["path_score"] == -1.0
+    assert win["num_tied"] == 1
+
+
+def test_select_best_path_all_answers_none():
+    cands = [
+        {"steps": ["s1"], "step_scores": [1.0], "answer": None},
+        {"steps": ["s1"], "step_scores": [-1.0], "answer": None},
+    ]
+    win = adapter.select_best_path(cands, aggregation_strategy="min")
+    assert win["answer"] is None
+    assert win["path_score"] == 1.0
+    assert win["num_tied"] == 1
+
+
+def test_run_prm_best_of_n_standalone():
+    gen_texts = [
+        "Step 1: Compute a.\nFinal Answer: 10",
+        "Step 1: Compute b.\nFinal Answer: 20",
+    ]
+    mock_gen = make_mock_generate_fn(gen_texts, token_counts=[15, 15])
+    judge_texts = [
+        "Verdict: INVALID\nRationale: Math error.",
+        "Verdict: VALID\nRationale: Correct logic.",
+    ]
+    mock_judge = make_mock_judge_fn(judge_texts, token_counts=[10, 10])
+
+    res = adapter.run_prm_best_of_n(mock_gen, mock_judge, "What is X?", n=2)
+    assert res["answer"] == 20
+    assert res["generation_calls"] == 2
+    assert res["judge_calls"] == 2
+    assert res["generated_tokens"] == 30
+    assert res["judge_tokens"] == 20
+    assert res["selected"]["path_score"] == 1.0
+
+
+def test_run_prm_best_of_n_with_shared_candidates():
+    shared_cands = [
+        {"completion": "...", "steps": ["Step 1: a"], "answer": 10, "num_tokens": 12},
+        {"completion": "...", "steps": ["Step 1: b"], "answer": 20, "num_tokens": 14},
+    ]
+    mock_gen = make_mock_generate_fn(["Should not be called"], token_counts=[100])
+    judge_texts = [
+        "Verdict: VALID\nRationale: All good.",
+        "Verdict: INVALID\nRationale: Mistake.",
+    ]
+    mock_judge = make_mock_judge_fn(judge_texts, token_counts=[8, 8])
+
+    res = adapter.run_prm_best_of_n(
+        mock_gen, mock_judge, "Problem", n=2, candidates=shared_cands
+    )
+    # Must NOT draw new samples
+    assert res["generation_calls"] == 0
+    assert res["generated_tokens"] == 0
+    assert res["judge_calls"] == 2
+    assert res["judge_tokens"] == 16
+    assert res["answer"] == 10
+
+
+def test_run_compute_matched_self_consistency():
+    existing_cands = [
+        {"completion": "...", "steps": ["s1"], "answer": 10, "num_tokens": 10},
+        {"completion": "...", "steps": ["s1"], "answer": 20, "num_tokens": 10},
+    ]
+    new_responses = [
+        "Step 1: ...\nFinal Answer: 20",
+        "Step 1: ...\nFinal Answer: 20",
+        "Step 1: ...\nFinal Answer: 30",
+    ]
+    mock_gen = make_mock_generate_fn(new_responses, token_counts=[12, 12, 12])
+
+    res = adapter.run_compute_matched_self_consistency(
+        mock_gen, "Problem", target_calls=5, existing_candidates=existing_cands
+    )
+    assert res["total_samples"] == 5
+    assert res["generation_calls"] == 3
+    assert res["generated_tokens"] == 36
+    assert len(res["candidates"]) == 5
+    assert res["answer"] == 20
+
+
+def run_all_tests():
+    """Runs all test functions without external dependencies."""
+    test_funcs = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
     passed = 0
     failed = 0
     print(f"Running {len(test_funcs)} public adapter smoke tests...")
@@ -177,7 +391,11 @@ if __name__ == "__main__":
             failed += 1
     print("=" * 45)
     print(f"Test Summary: {passed} passed, {failed} failed.")
-    if failed > 0:
-        sys.exit(1)
-    else:
+    if failed == 0:
         print("ALL TESTS PASSED SUCCESSFULLY!")
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(run_all_tests())

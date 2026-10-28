@@ -1,30 +1,49 @@
 """
 src/generation.py - Prompt formatting and baseline generation routines.
 """
-from typing import Any
-import torch
+from typing import Any, Callable
+
+GenerateFn = Callable[[str, int, dict], list[dict]]
 
 
-def format_generation_prompt(question: str) -> str:
-    """Builds a zero-shot prompt enforcing step-structured reasoning."""
-    # TODO: Build prompt instructing the model to output Step 1: ..., Step 2: ..., Final Answer: <int>
-    raise NotImplementedError("Implement format_generation_prompt")
+def format_step_prompt(question: str) -> str:
+    """
+    Formats the raw problem question into a prompt that instructs the 
+    model to emit numbered steps ('Step 1: ...') and 'Final Answer: <int>'.
+    
+    Returns a raw instruction string (no chat template applied).
+    """
+    # TODO: Build zero-shot prompt enforcing step-structured reasoning
+    raise NotImplementedError("Implement format_step_prompt in src/generation.py")
 
 
-def generate_greedy(model: Any, tokenizer: Any, question: str) -> dict[str, Any]:
-    """Generates a single greedy reasoning path at temperature=0."""
-    # TODO: Perform deterministic greedy autoregressive generation
-    raise NotImplementedError("Implement generate_greedy")
+def compute_majority_vote(answers: list[int | None]) -> int | None:
+    """
+    Given a list of extracted answers, returns the majority answer.
+    Ignores None values. Breaks ties deterministically in favor of the answer
+    that appeared earliest in the list.
+    """
+    # TODO: Implement deterministic majority voting
+    raise NotImplementedError("Implement compute_majority_vote in src/generation.py")
 
 
-def generate_self_consistency(
-    model: Any, 
-    tokenizer: Any, 
+def run_greedy(generate_fn: GenerateFn, question: str) -> dict[str, Any]:
+    """
+    Executes greedy decoding for a single question using generate_fn.
+    Must call generate_fn with num_samples=1 and gen_kwargs containing do_sample=False.
+    """
+    # TODO: Implement greedy baseline decoding
+    raise NotImplementedError("Implement run_greedy in src/generation.py")
+
+
+def run_self_consistency(
+    generate_fn: GenerateFn, 
     question: str, 
     n: int = 5, 
     temperature: float = 0.7
 ) -> dict[str, Any]:
-    """Samples N diverse reasoning paths and aggregates their final answers via majority vote."""
-    # TODO: Sample N completions, extract answers, and compute majority vote
-    raise NotImplementedError("Implement generate_self_consistency")
-
+    """
+    Samples n diverse reasoning trajectories and aggregates candidate answers via majority vote.
+    """
+    # TODO: Implement Self-Consistency sampling and majority voting
+    raise NotImplementedError("Implement run_self_consistency in src/generation.py")

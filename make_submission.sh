@@ -12,31 +12,30 @@ ARCHIVE_NAME="${ROLL_NUMBER}_pa3.zip"
 
 echo "Creating submission archive: ${ARCHIVE_NAME}"
 
-# Verify required files exist
-if [ ! -f "submission_adapter.py" ]; then
-    echo "Error: submission_adapter.py not found in repository root."
-    exit 1
-fi
-
-if [ ! -d "src" ]; then
-    echo "Error: src/ directory not found."
-    exit 1
-fi
+# Verify required files and directories exist
+for req in "submission_adapter.py" "src" "outputs/results_summary.json" "outputs/aggregation_ablation.json" "outputs/sc_scaling_curve.json" "REPORT.pdf"; do
+    if [ ! -e "$req" ]; then
+        echo "Error: Required submission file or directory '$req' not found."
+        echo "Please ensure you have run the evaluation scripts and placed REPORT.pdf in the repository root."
+        exit 1
+    fi
+done
 
 # Run public smoke tests
 echo "Running public smoke tests..."
-python -m pytest -v tests/test_public_adapter_smoke.py || echo "Warning: Some tests failed. Proceeding with packaging."
+python tests/test_public_adapter_smoke.py || echo "Warning: Some tests failed. Proceeding with packaging."
 
 # Create zip archive
 zip -r "${ARCHIVE_NAME}" \
     src/ \
     submission_adapter.py \
     outputs/results_summary.json \
+    outputs/aggregation_ablation.json \
+    outputs/sc_scaling_curve.json \
     REPORT.pdf \
-    -x "__pycache__/*" "src/__pycache__/*" "*.pyc"
+    -x "__pycache__/*" "src/__pycache__/*" "*.pyc" "_reference/*"
 
 echo "=========================================="
 echo "Successfully generated: ${ARCHIVE_NAME}"
 echo "Please verify its contents and upload to the LMS."
 echo "=========================================="
-
