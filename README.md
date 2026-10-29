@@ -29,16 +29,17 @@ cs5326-pa3/
 |   |-- extraction.py                # Regex parser for steps and numerical answers
 |   |-- prm_judge.py                 # Step-level verifier prompt & scoring loop
 |   |-- search.py                    # PRM-guided Best-of-N and budget tracking
-|   `-- utils.py                     # 4-bit model loading, logging, bookkeeping
+|   `-- utils.py                     # Dual-model loading, generate/judge callables, bookkeeping helpers
 |-- tests/
 |   |-- __init__.py
-|   `-- test_public_adapter_smoke.py # Public smoke test suite for grading interface
+|   |-- test_public_adapter_smoke.py # Public smoke test suite for grading interface
+|   `-- test_token_counting.py       # Offline token count test with batch padding
 |-- outputs/                         # Generated predictions and metric dumps
 |   |-- results_summary.json         # Automated metrics table across all 6 configurations
 |   |-- aggregation_ablation.json    # Aggregation strategies and lambda sweep ablation
 |   |-- sc_scaling_curve.json        # Self-consistency scaling curve (N=1..15)
 |   `-- per_problem.jsonl            # Detailed per-problem records and step scores
-|-- run_pipeline.ipynb               # End-to-end evaluation pipeline notebook
+|-- run_pipeline.ipynb               # End-to-end evaluation pipeline notebook (you create this)
 |-- submission_adapter.py            # Grading adapter contract (Required)
 |-- requirements.txt
 |-- pyproject.toml

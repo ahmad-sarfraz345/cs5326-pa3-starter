@@ -1,6 +1,7 @@
 """
 src/extraction.py - Step and answer extraction utilities.
 """
+import re
 
 
 def parse_steps(completion_text: str) -> list[str]:
@@ -9,14 +10,24 @@ def parse_steps(completion_text: str) -> list[str]:
     Must tolerate markdown decoration around labels (e.g. '**Step 1:**', '### Step 2:')
     and strip leftover '*' or '#' from captured text.
     """
-    # TODO: Implement robust regex step extraction
-    raise NotImplementedError("Implement parse_steps in src/extraction.py")
+    if not completion_text or not isinstance(completion_text, str):
+        return []
+
+    # Pattern matching Step markers with optional markdown decoration (#, *, `, :, .)
+    pattern = r"(?:^|\n)\s*(?:[#*`\s]*Step\s*\d+\s*[:.]?[#*`\s]*)(.*?)(?=(?:\n\s*[#*`\s]*Step\s*\d+\s*[:.]?[#*`\s]*)|(?:\n\s*[#*`\s]*Final Answer)|$)"
+    matches = re.findall(pattern, completion_text, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = []
+    for m in matches:
+        text = m.strip().strip("*#`").strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
 
 
 def extract_answer(completion_text: str) -> int | None:
     """
     Extracts the final numeric integer from the completion.
-    
+
     Required Behaviors:
       - 'Final Answer: 18' -> 18
       - 'Final Answer: $1,234' -> 1234

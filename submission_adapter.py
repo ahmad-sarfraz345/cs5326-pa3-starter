@@ -1,23 +1,45 @@
 """
 CS 5326: Advanced Generative AI and Agents - Programming Assignment 3
 Submission Adapter Interface Contract.
-
-This module acts as the formal grading adapter interface. The auto-grader imports
-this file directly to execute unit and regression tests against your implementation.
-You should implement the functions in src/ and connect them here, or implement the
-glue code directly in this module.
-
-Do not modify the documented signatures or return types of these functions.
 """
 from typing import Any, Callable
 
-# Type Aliases for injectable callables (Autograding Harness)
+# Type Aliases as mandated by the assignment contract
 GenerateFn = Callable[[str, int, dict], list[dict]]
 # generate_fn(raw_prompt, num_samples, gen_kwargs) -> list of {"text": str, "num_tokens": int}
 # gen_kwargs carries do_sample/temperature/top_p/top_k/repetition_penalty/max_new_tokens
 
 JudgeFn = Callable[[str], dict]
 # judge_fn(judge_prompt) -> {"text": str, "num_tokens": int}
+
+try:
+    from .src.extraction import extract_answer as _extract_answer
+    from .src.extraction import parse_steps as _parse_steps
+    from .src.generation import compute_majority_vote as _compute_majority_vote
+    from .src.generation import format_step_prompt as _format_step_prompt
+    from .src.generation import run_greedy as _run_greedy
+    from .src.generation import run_self_consistency as _run_self_consistency
+    from .src.prm_judge import build_prm_judge_prompt as _build_prm_judge_prompt
+    from .src.prm_judge import parse_judge_decision as _parse_judge_decision
+    from .src.prm_judge import score_path as _score_path
+    from .src.search import aggregate_path_score as _aggregate_path_score
+    from .src.search import run_compute_matched_self_consistency as _run_compute_matched_self_consistency
+    from .src.search import run_prm_best_of_n as _run_prm_best_of_n
+    from .src.search import select_best_path as _select_best_path
+except ImportError:
+    from src.extraction import extract_answer as _extract_answer
+    from src.extraction import parse_steps as _parse_steps
+    from src.generation import compute_majority_vote as _compute_majority_vote
+    from src.generation import format_step_prompt as _format_step_prompt
+    from src.generation import run_greedy as _run_greedy
+    from src.generation import run_self_consistency as _run_self_consistency
+    from src.prm_judge import build_prm_judge_prompt as _build_prm_judge_prompt
+    from src.prm_judge import parse_judge_decision as _parse_judge_decision
+    from src.prm_judge import score_path as _score_path
+    from src.search import aggregate_path_score as _aggregate_path_score
+    from src.search import run_compute_matched_self_consistency as _run_compute_matched_self_consistency
+    from src.search import run_prm_best_of_n as _run_prm_best_of_n
+    from src.search import select_best_path as _select_best_path
 
 
 def format_step_prompt(question: str) -> str:
@@ -32,7 +54,7 @@ def format_step_prompt(question: str) -> str:
     Returns:
         The formatted prompt string to feed to the language model.
     """
-    raise NotImplementedError("Implement format_step_prompt")
+    return _format_step_prompt(question)
 
 
 def parse_steps(completion_text: str) -> list[str]:
@@ -47,7 +69,7 @@ def parse_steps(completion_text: str) -> list[str]:
     Returns:
         A list of clean step strings, e.g. ["Janet starts with 16 eggs.", ...].
     """
-    raise NotImplementedError("Implement parse_steps")
+    return _parse_steps(completion_text)
 
 
 def extract_answer(completion_text: str) -> int | None:
@@ -72,7 +94,7 @@ def extract_answer(completion_text: str) -> int | None:
     Returns:
         The extracted integer, or None if extraction fails.
     """
-    raise NotImplementedError("Implement extract_answer")
+    return _extract_answer(completion_text)
 
 
 def compute_majority_vote(answers: list[int | None]) -> int | None:
@@ -89,7 +111,7 @@ def compute_majority_vote(answers: list[int | None]) -> int | None:
     Returns:
         The majority voted integer, or None.
     """
-    raise NotImplementedError("Implement compute_majority_vote")
+    return _compute_majority_vote(answers)
 
 
 def build_prm_judge_prompt(question: str, preceding_steps: list[str], current_step: str) -> str:
@@ -117,35 +139,17 @@ def build_prm_judge_prompt(question: str, preceding_steps: list[str], current_st
     Returns:
         The formatted judge prompt string.
     """
-    raise NotImplementedError("Implement build_prm_judge_prompt")
+    return _build_prm_judge_prompt(question, preceding_steps, current_step)
 
 
 def parse_judge_decision(judge_output: str) -> tuple[float, str]:
-    r"""Parses the judge model's raw text completion into (score, rationale).
+    """Parses the judge model's raw text completion into (score, rationale).
     
-    Rules:
-      1. If a line matches /verdict\s*:\s*\**\s*(VALID|INVALID)\b/i, use it.
-         If several exist, use the first.
-      2. Otherwise, if the standalone word INVALID or phrase 'NOT VALID' appears
-         (case-insensitive, word boundaries) -> -1.0.
-      3. Otherwise, if the standalone word VALID appears -> +1.0.
-      4. Otherwise -> -1.0 (unparseable defaults to INVALID).
-      
-      Warning: A naive '"VALID" in text' check is wrong because "INVALID" contains "VALID".
-      
-      Rationale: The text after 'Rationale:' up to the first sentence end (".", "!", or "?"
-      followed by whitespace or end of string, so decimals like "2.5" are not split),
-      or a newline, whichever comes first, stripped. If absent, returns empty string "".
-      
-    Args:
-        judge_output: The raw text returned by the judge model.
-        
-    Returns:
-        A tuple of (score, rationale):
-            score: +1.0 for VALID, -1.0 for INVALID.
-            rationale: Extracted one-sentence justification.
+    Rationale: Text after 'Rationale:' up to first sentence end ('.', '!', '?' followed
+    by whitespace or end of string, so decimals like '2.5' are not split) or newline,
+    whichever comes first, stripped. If absent, returns empty string "".
     """
-    raise NotImplementedError("Implement parse_judge_decision")
+    return _parse_judge_decision(judge_output)
 
 
 def aggregate_path_score(
@@ -170,7 +174,7 @@ def aggregate_path_score(
     Returns:
         Aggregated scalar score as a float.
     """
-    raise NotImplementedError("Implement aggregate_path_score")
+    return _aggregate_path_score(step_scores, strategy=strategy, penalty_lambda=penalty_lambda)
 
 
 def select_best_path(
@@ -209,7 +213,7 @@ def select_best_path(
     Returns:
         The winning candidate dict copy with added keys 'path_score' and 'num_tied'.
     """
-    raise NotImplementedError("Implement select_best_path")
+    return _select_best_path(candidate_paths, aggregation_strategy=aggregation_strategy, penalty_lambda=penalty_lambda)
 
 
 def run_greedy(
@@ -233,7 +237,7 @@ def run_greedy(
           'generated_tokens': total tokens produced,
           'time_seconds': float elapsed time
     """
-    raise NotImplementedError("Implement run_greedy")
+    return _run_greedy(model=model, tokenizer=tokenizer, question=question, generate_fn=generate_fn)
 
 
 def run_self_consistency(
@@ -254,7 +258,10 @@ def run_self_consistency(
           'generated_tokens': total tokens produced across all candidates,
           'time_seconds': float elapsed time
     """
-    raise NotImplementedError("Implement run_self_consistency")
+    return _run_self_consistency(
+        model=model, tokenizer=tokenizer, question=question, n=n, 
+        temperature=temperature, generate_fn=generate_fn
+    )
 
 
 def score_path(
@@ -277,7 +284,10 @@ def score_path(
           'judge_calls': int (=len(steps)),
           'judge_tokens': int (total tokens returned by judge)
     """
-    raise NotImplementedError("Implement score_path")
+    return _score_path(
+        judge_model=judge_model, judge_tokenizer=judge_tokenizer, 
+        question=question, candidate=candidate, judge_fn=judge_fn
+    )
 
 
 def run_prm_best_of_n(
@@ -313,7 +323,16 @@ def run_prm_best_of_n(
           'judge_tokens': int (total judge output tokens),
           'time_seconds': float elapsed time
     """
-    raise NotImplementedError("Implement run_prm_best_of_n")
+    return _run_prm_best_of_n(
+        model=model, judge_model=judge_model, 
+        gen_tokenizer=gen_tokenizer, judge_tokenizer=judge_tokenizer, 
+        question=question, n=n, 
+        aggregation_strategy=aggregation_strategy, 
+        penalty_lambda=penalty_lambda, 
+        candidates=candidates, 
+        generate_fn=generate_fn, 
+        judge_fn=judge_fn
+    )
 
 
 def run_compute_matched_self_consistency(
@@ -341,4 +360,9 @@ def run_compute_matched_self_consistency(
           'generated_tokens': int (new samples only),
           'time_seconds': float elapsed time
     """
-    raise NotImplementedError("Implement run_compute_matched_self_consistency")
+    return _run_compute_matched_self_consistency(
+        model=model, tokenizer=tokenizer, question=question, 
+        target_calls=target_calls, temperature=temperature, 
+        existing_candidates=existing_candidates, 
+        generate_fn=generate_fn
+    )
