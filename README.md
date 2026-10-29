@@ -53,9 +53,11 @@ cs5326-pa3/
 ### Getting Started
 
 #### 1. Setup Environment
+Kaggle's environment includes preinstalled PyTorch, Transformers, Accelerate, Datasets, and NumPy. On Kaggle, upgrade `bitsandbytes` to a modern release:
 ```bash
-pip install -r requirements.txt
+pip install -q -U bitsandbytes
 ```
+*(Note: Pinned legacy installs like `bitsandbytes==0.44.1` break on Kaggle's current image because `bitsandbytes 0.44` imports `triton.ops`, which no longer exists. Upgrading to unpinned `bitsandbytes>=0.45.5` resolves this).*
 
 #### 2. Run Public Smoke Tests
 The repository includes a public test suite to verify your adapter signatures and parsing math offline:
@@ -69,7 +71,7 @@ Create a new Kaggle notebook, set the **Accelerator** in the top sidebar to **GP
 ```bash
 !git clone https://github.com/ahmad-sarfraz345/cs5326-pa3-starter.git
 %cd cs5326-pa3-starter
-!pip install -q -r requirements.txt
+!pip install -q -U bitsandbytes
 ```
 Load the dual models (1.5B generator in fp16 on cuda:0, 7B judge in 4-bit NF4 on cuda:1):
 ```python
